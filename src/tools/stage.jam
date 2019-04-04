@@ -28,6 +28,37 @@ feature.feature <so-version>           :        : free incidental ;
 # Unix builds only.
 feature.feature <install-no-version-symlinks> : on : optional incidental ;
 
+# features that specify paths to installation prefixes and well-known
+# installation directories
+feature.feature stage-prefix : : free path incidental ;
+feature.feature install-prefix : : free path incidental ;
+feature.feature install-exec-prefix : : free incidental ;
+feature.feature install-bindir : : free incidental ;
+feature.feature install-sbindir : : free incidental ;
+feature.feature install-libexecdir : : free incidental ;
+feature.feature install-datarootdir : : free incidental ;
+feature.feature install-datadir : : free incidental ;
+feature.feature install-sysconfdir : : free incidental ;
+feature.feature install-sharedstatedir : : free incidental ;
+feature.feature install-localstatedir : : free incidental ;
+feature.feature install-runstatedir : : free incidental ;
+feature.feature install-includedir : : free incidental ;
+feature.feature install-oldincludedir : : free incidental ;
+feature.feature install-docdir : : free incidental ;
+feature.feature install-infodir : : free incidental ;
+feature.feature install-htmldir : : free incidental ;
+feature.feature install-dvidir : : free incidental ;
+feature.feature install-pdfdir : : free incidental ;
+feature.feature install-psdir : : free incidental ;
+feature.feature install-libdir : : free incidental ;
+feature.feature install-lispdir : : free incidental ;
+feature.feature install-localedir : : free incidental ;
+feature.feature install-mandir : : free incidental ;
+
+# feature that specifies the name of the package to which installed files
+# belong
+feature.feature install-package : : free incidental ;
+
 
 class install-target-class : basic-target
 {
@@ -59,10 +90,17 @@ class install-target-class : basic-target
         local loc = [ $(property-set).get <location> ] ;
         if ! $(loc)
         {
-            loc = [ path.root $(self.name) [ $(self.project).get location ] ] ;
+            # check if installation to a well-known directory was requested
+            local matches = [ MATCH "^\\((.+)\\)(.*)" : $(self.name) ] ;
+            if $(matches) {
+                loc = [ well-known-location  $(matches) : $(property-set) ] ;
+            } else {
+                loc =
+                    [ path.root $(self.name) [ $(self.project).get location ] ]
+                    ;
+            }
             property-set = [ $(property-set).add-raw $(loc:G=<location>) ] ;
         }
-
         return $(property-set) ;
     }
 
@@ -290,6 +328,122 @@ class install-target-class : basic-target
         }
 
         return $(found) ;
+    }
+
+    # Returns location inside a well-known directory
+    #
+    local rule well-known-location ( well-known-dir subdir : property-set )
+    {
+        # at this point subdir is either an empty string or an absolute path,
+        # but we need it to be either an empty string or a relative path
+        if $(subdir) != ""
+        {
+            subdir = [ path.relative $(subdir) / ] ;
+        }
+
+        local package-name = [ $(property-set).get <install-package> ] ;
+        if ! $(package-name)
+        {
+            package-name = [ $(self.project).get id ] ;
+            if ! $(package-name)
+            {
+                local root =  [ $(self.project).get project-root ] ;
+                root = [ path.root $(root) [ path.pwd ] ] ;
+                package-name = $(root:B) ;
+            }
+        }
+
+        local prefix =
+            [ get-install-dir $(well-known-dir) : $(package-name)
+                : $(property-set) ] ;
+        return [ path.root $(subdir) $(prefix) ] ;
+    }
+
+    # Returns the path to the requested well-known directory
+    #
+    local rule get-install-dir ( well-known-dir : package-name : property-set )
+    {
+        local loc ;
+        # We treat the 'prefix' directory in a special way, because it doesn't
+        # have a base directory and it can be overriden by staging prefix.
+        if $(well-known-dir) = prefix
+        {
+            loc = [ get-install-prefix $(package-name) : $(property-set) ] ;
+        }
+        else
+        {
+            # First, try getting the path for requested directory from
+            # properties.
+            loc = [ $(property-set).get <install-$(well-known-dir)> ] ;
+
+            local info =
+                [ well-known-default $(well-known-dir) : $(package-name) ] ;
+            # Otherwise, use the default path. In both cases, it could be a
+            # relative path.
+            loc ?= $(info[1]) ;
+            # If the path is indeed relative and if there is a base directory
+            # for the requested directory, then we prefix the path to requested
+            # directory with the path to base directory
+            if ( ! [ path.is-rooted $(loc) ]  ) && $(info[2]) {
+                local base =
+                    [ get-install-dir $(info[2]) : $(package-name)
+                        : $(property-set) ] ;
+                loc = [ path.root $(loc) $(base) ] ;
+            }
+        }
+        return $(loc) ;
+    }
+
+    local rule well-known-default ( well-known-dir : package-name )
+    {
+        switch $(well-known-dir)
+        {
+            case exec-prefix : return "" prefix ;
+            case bindir : return bin exec-prefix ;
+            case sbindir : return sbin exec-prefix ;
+            case libexecdir : return libexec exec-prefix ;
+            case libdir : return lib exec-prefix ;
+            case datarootdir : return share prefix ;
+            case datadir : return "" datarootdir ;
+            case sysconfdir : return etc prefix ;
+            case sharedstatedir : return com prefix ;
+            case localstatedir : return var prefix ;
+            case runstatedir : return run localstatedir ;
+            case includedir : return "include" prefix ;
+            case oldincludedir : return /usr/include ;
+            case docdir : return $(package-name:D=docdir) datarootdir ;
+            case infodir : return info datarootdir ;
+            case htmldir : return "" docdir ;
+            case dvidir : return "" docdir ;
+            case pdfdir : return "" docdir ;
+            case psdir : return "" docdir ;
+            case lispdir : return emacs/site-lisp datarootdir ;
+            case localedir : return locale datarootdir ;
+            case mandir : return man datarootdir ;
+            case * :
+                import errors ;
+                errors.error $(well-known-dir) is not a well-known
+                    installation directory. ;
+        }
+    }
+
+    local rule get-install-prefix ( package-name : property-set )
+    {
+      echo $(package-name) ;
+        local prefix = [ $(property-set).get <stage-prefix> ] ;
+        prefix ?= [ $(property-set).get <install-prefix> ] ;
+        if ! $(prefix)
+        {
+            if [ modules.peek : NT ]
+            {
+                prefix = C:\\$(package-name) ;
+            }
+            else
+            {
+                return /usr/local ;
+            }
+        }
+        return $(prefix) ;
     }
 }
 
