@@ -8,5 +8,5 @@
 import feature ;
 
 feature.feature stdlib
-    : native
+    : native gnu gnu11 libc++ sun-stlport apache
     : propagated composite ;
