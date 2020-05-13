@@ -197,9 +197,14 @@ class install-target-class : basic-target
     rule update-location ( property-set )
     {
         local location = [ $(property-set).get <location> ] ;
+        local project-location = [ $(self.project).get location ] ;
 
         local prefix ;
         local suffix = $(location) ;
+        if $(suffix)
+        {
+            suffix = [ path.relative $(suffix) $(project-location) ] ;
+        }
         suffix ?= $(self.name) ;
         local matches = [ MATCH "^\\((.+)\\)(/(.*))?$" : $(suffix) ] ;
 
@@ -217,7 +222,7 @@ class install-target-class : basic-target
         # else, prefix location with the project's path
         else
         {
-            prefix = [ $(self.project).get location ] ;
+            prefix = $(project-location) ;
         }
         suffix = [ path.root $(suffix) $(prefix) ] ;
 
